@@ -110,6 +110,21 @@ int main(int argc, char *argv[]) {
         if (!found) {
             printf("Commit %d not found\n", target_id);
         }
+    } else if (strcmp(argv[1], "log") == 0) {
+        FILE *commits = fopen(".cjit/commits.txt", "r");
+        if (!commits) {
+            printf("No commits found\n");
+            return 1;
+        }
+        char line[512];
+        printf("Commit history:\n");
+        while (fgets(line, 512, commits)) {
+            int id;
+            char msg[100];
+            sscanf(line, "%d|%99s|", &id, msg);
+            printf("  Commit %d: %s\n", id, msg);
+        }
+        fclose(commits);
     }
 
     return 0;
