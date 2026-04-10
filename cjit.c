@@ -125,6 +125,49 @@ int main(int argc, char *argv[]) {
             printf("  Commit %d: %s\n", id, msg);
         }
         fclose(commits);
+    } else if (strcmp(argv[1], "diff") == 0) {
+        if (argc < 4) {
+            printf("Usage: cjit diff <commit1> <commit2>\n");
+            return 1;
+        }
+        int id1 = atoi(argv[2]);
+        int id2 = atoi(argv[3]);
+        printf("Diff between commit %d and commit %d:\n", id1, id2);
+
+        char file1[256], file2[256];
+        sprintf(file1, ".cjit/objects/%d_test.txt", id1);
+        sprintf(file2, ".cjit/objects/%d_test.txt", id2);
+
+        FILE *f1 = fopen(file1, "r");
+        FILE *f2 = fopen(file2, "r");
+
+        if (!f1 || !f2) {
+            printf("Cannot open object files for comparison\n");
+            return 1;
+        }
+
+        char line1[256], line2[256];
+        int line_num = 1;
+        int diff_found = 0;
+
+        while (fgets(line1, 256, f1) || fgets(line2, 256, f2)) {
+            if (strcmp(line1, line2) != 0) {
+                printf("Line %d:\n", line_num);
+                printf("  [%d] %s", id1, line1);
+                printf("  [%d] %s", id2, line2);
+                diff_found = 1;
+            }
+            line_num++;
+            memset(line1, 0, 256);
+            memset(line2, 0, 256);
+        }
+
+        if (!diff_found) {
+            printf("  No differences found\n");
+        }
+
+        fclose(f1);
+        fclose(f2);
     }
 
     return 0;
