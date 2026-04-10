@@ -14,8 +14,14 @@ void init_repo() {
     system("mkdir .cjit/objects");
     FILE *f1 = fopen(".cjit/commits.txt", "w");
     FILE *f2 = fopen(".cjit/staging.txt", "w");
+    FILE *f3 = fopen(".cjit/branches.txt", "w");
+    fprintf(f3, "main|0\n");
+    FILE *f4 = fopen(".cjit/HEAD", "w");
+    fprintf(f4, "main");
     fclose(f1);
     fclose(f2);
+    fclose(f3);
+    fclose(f4);
     printf("Initialized empty CJIT repository\n");
 }
 
