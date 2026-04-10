@@ -35,6 +35,40 @@ int main(int argc, char *argv[]) {
         fprintf(staging, "%s\n", argv[2]);
         fclose(staging);
         printf("Staged: %s\n", argv[2]);
+    } else if (strcmp(argv[1], "commit") == 0) {
+        if (argc < 3) {
+            printf("Usage: cjit commit <message>\n");
+            return 1;
+        }
+        static int commit_id = 1;
+        FILE *commits = fopen(".cjit/commits.txt", "a");
+        fprintf(commits, "%d|%s|", commit_id, argv[2]);
+
+        char staged_file[128];
+        FILE *staging = fopen(".cjit/staging.txt", "r");
+        while (fgets(staged_file, 128, staging)) {
+            staged_file[strlen(staged_file)-1] = '\0';
+            fprintf(commits, "%s,", staged_file);
+
+            char obj_path[256];
+            sprintf(obj_path, ".cjit/objects/%d_%s", commit_id, staged_file);
+            FILE *src = fopen(staged_file, "r");
+            FILE *dest = fopen(obj_path, "w");
+            char ch;
+            while ((ch = fgetc(src)) != EOF) {
+                fputc(ch, dest);
+            }
+            fclose(src);
+            fclose(dest);
+        }
+        fprintf(commits, "\n");
+        fclose(staging);
+        fclose(commits);
+
+        FILE *clear = fopen(".cjit/staging.txt", "w");
+        fclose(clear);
+        printf("Committed: %s (id: %d)\n", argv[2], commit_id);
+        commit_id++;
     }
 
     return 0;
