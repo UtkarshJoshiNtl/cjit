@@ -48,17 +48,24 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         static int commit_id = 1;
+        struct Commit c;
+        c.id = commit_id;
+        strcpy(c.message, argv[2]);
+        c.file_count = 0;
+
         FILE *commits = fopen(".cjit/commits.txt", "a");
-        fprintf(commits, "%d|%s|", commit_id, argv[2]);
+        fprintf(commits, "%d|%s|", c.id, c.message);
 
         char staged_file[128];
         FILE *staging = fopen(".cjit/staging.txt", "r");
-        while (fgets(staged_file, 128, staging)) {
+        while (fgets(staged_file, 128, staging) && c.file_count < 10) {
             staged_file[strlen(staged_file)-1] = '\0';
+            strcpy(c.files[c.file_count], staged_file);
+            c.file_count++;
             fprintf(commits, "%s,", staged_file);
 
             char obj_path[256];
-            sprintf(obj_path, ".cjit/objects/%d_%s", commit_id, staged_file);
+            sprintf(obj_path, ".cjit/objects/%d_%s", c.id, staged_file);
             FILE *src = fopen(staged_file, "r");
             FILE *dest = fopen(obj_path, "w");
             char ch;
@@ -74,7 +81,7 @@ int main(int argc, char *argv[]) {
 
         FILE *clear = fopen(".cjit/staging.txt", "w");
         fclose(clear);
-        printf("Committed: %s (id: %d)\n", argv[2], commit_id);
+        printf("Committed: %s (id: %d, files: %d)\n", c.message, c.id, c.file_count);
         commit_id++;
     } else if (strcmp(argv[1], "checkout") == 0) {
         if (argc < 3) {
