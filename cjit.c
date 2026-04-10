@@ -188,6 +188,67 @@ int main(int argc, char *argv[]) {
 
         fclose(f1);
         fclose(f2);
+    } else if (strcmp(argv[1], "branch") == 0) {
+        if (argc < 3) {
+            printf("Usage: cjit branch <name>\n");
+            return 1;
+        }
+        FILE *branches = fopen(".cjit/branches.txt", "a");
+        fprintf(branches, "%s|0\n", argv[2]);
+        fclose(branches);
+        printf("Created branch: %s\n", argv[2]);
+    } else if (strcmp(argv[1], "checkout") == 0) {
+        if (argc < 3) {
+            printf("Usage: cjit checkout <commit_id_or_branch>\n");
+            return 1;
+        }
+        int is_branch = 0;
+        int target_commit = 0;
+        char target_branch[100];
+
+        FILE *branches = fopen(".cjit/branches.txt", "r");
+        char line[256];
+        while (fgets(line, 256, branches)) {
+            char bname[100];
+            int bid;
+            sscanf(line, "%[^|]|%d", bname, &bid);
+            if (strcmp(bname, argv[2]) == 0) {
+                is_branch = 1;
+                strcpy(target_branch, bname);
+                target_commit = bid;
+                break;
+            }
+        }
+        fclose(branches);
+
+        if (is_branch) {
+            FILE *head = fopen(".cjit/HEAD", "w");
+            fprintf(head, "%s", target_branch);
+            fclose(head);
+            printf("Switched to branch: %s\n", target_branch);
+            if (target_commit > 0) {
+                printf("(at commit %d)\n", target_commit);
+            }
+        } else {
+            int commit_id = atoi(argv[2]);
+            FILE *commits = fopen(".cjit/commits.txt", "r");
+            char cline[512];
+            int found = 0;
+            while (fgets(cline, 512, commits)) {
+                int cid;
+                sscanf(cline, "%d|", &cid);
+                if (cid == commit_id) {
+                    found = 1;
+                    break;
+                }
+            }
+            fclose(commits);
+            if (found) {
+                printf("Checked out commit: %d\n", commit_id);
+            } else {
+                printf("Branch or commit not found: %s\n", argv[2]);
+            }
+        }
     }
 
     return 0;
