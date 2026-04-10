@@ -34,6 +34,17 @@ int main(int argc, char *argv[]) {
         fprintf(staging, "%s\n", argv[2]);
         fclose(staging);
         printf("Staged: %s\n", argv[2]);
+    } else if (strcmp(argv[1], "commit") == 0) {
+        if (argc < 3) {
+            printf("Usage: cjit commit <message>\n");
+            return 1;
+        }
+        FILE *commits = fopen(".cjit/commits.txt", "a");
+        fprintf(commits, "%s\n", argv[2]);
+        fclose(commits);
+        FILE *clear = fopen(".cjit/staging.txt", "w");
+        fclose(clear);
+        printf("Committed: %s\n", argv[2]);
     }
 
     return 0;
