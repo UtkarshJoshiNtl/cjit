@@ -69,6 +69,47 @@ int main(int argc, char *argv[]) {
         fclose(clear);
         printf("Committed: %s (id: %d)\n", argv[2], commit_id);
         commit_id++;
+    } else if (strcmp(argv[1], "checkout") == 0) {
+        if (argc < 3) {
+            printf("Usage: cjit checkout <commit_id>\n");
+            return 1;
+        }
+        int target_id = atoi(argv[2]);
+        FILE *commits = fopen(".cjit/commits.txt", "r");
+        char line[512];
+        int found = 0;
+        while (fgets(line, 512, commits)) {
+            int id;
+            sscanf(line, "%d|", &id);
+            if (id == target_id) {
+                found = 1;
+                char *files_start = strchr(line, '|');
+                files_start = strchr(files_start + 1, '|');
+                if (files_start) {
+                    files_start++;
+                    char *files = strtok(files_start, ",");
+                    while (files && strcmp(files, "\n") != 0) {
+                        char obj_path[256];
+                        sprintf(obj_path, ".cjit/objects/%d_%s", target_id, files);
+                        FILE *src = fopen(obj_path, "r");
+                        FILE *dest = fopen(files, "w");
+                        char ch;
+                        while ((ch = fgetc(src)) != EOF) {
+                            fputc(ch, dest);
+                        }
+                        fclose(src);
+                        fclose(dest);
+                        printf("Restored: %s\n", files);
+                        files = strtok(NULL, ",");
+                    }
+                }
+                break;
+            }
+        }
+        fclose(commits);
+        if (!found) {
+            printf("Commit %d not found\n", target_id);
+        }
     }
 
     return 0;
