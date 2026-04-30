@@ -53,7 +53,20 @@ int main(int argc, char *argv[]) {
             printf("Usage: cjit commit <message>\n");
             return 1;
         }
-        static int commit_id = 1;
+        // Read last commit ID from commits file to avoid reset on program restart
+        int commit_id = 1;
+        FILE *existing_commits = fopen(".cjit/commits.txt", "r");
+        if (existing_commits) {
+            char last_line[512];
+            while (fgets(last_line, 512, existing_commits)) {
+                int id;
+                if (sscanf(last_line, "%d|", &id) == 1) {
+                    commit_id = id + 1;
+                }
+            }
+            fclose(existing_commits);
+        }
+        
         struct Commit c;
         c.id = commit_id;
         strcpy(c.message, argv[2]);
@@ -89,47 +102,6 @@ int main(int argc, char *argv[]) {
         fclose(clear);
         printf("Committed: %s (id: %d, files: %d)\n", c.message, c.id, c.file_count);
         commit_id++;
-    } else if (strcmp(argv[1], "checkout") == 0) {
-        if (argc < 3) {
-            printf("Usage: cjit checkout <commit_id>\n");
-            return 1;
-        }
-        int target_id = atoi(argv[2]);
-        FILE *commits = fopen(".cjit/commits.txt", "r");
-        char line[512];
-        int found = 0;
-        while (fgets(line, 512, commits)) {
-            int id;
-            sscanf(line, "%d|", &id);
-            if (id == target_id) {
-                found = 1;
-                char *files_start = strchr(line, '|');
-                files_start = strchr(files_start + 1, '|');
-                if (files_start) {
-                    files_start++;
-                    char *files = strtok(files_start, ",");
-                    while (files && strcmp(files, "\n") != 0) {
-                        char obj_path[256];
-                        sprintf(obj_path, ".cjit/objects/%d_%s", target_id, files);
-                        FILE *src = fopen(obj_path, "r");
-                        FILE *dest = fopen(files, "w");
-                        char ch;
-                        while ((ch = fgetc(src)) != EOF) {
-                            fputc(ch, dest);
-                        }
-                        fclose(src);
-                        fclose(dest);
-                        printf("Restored: %s\n", files);
-                        files = strtok(NULL, ",");
-                    }
-                }
-                break;
-            }
-        }
-        fclose(commits);
-        if (!found) {
-            printf("Commit %d not found\n", target_id);
-        }
     } else if (strcmp(argv[1], "log") == 0) {
         FILE *commits = fopen(".cjit/commits.txt", "r");
         if (!commits) {
@@ -141,7 +113,18 @@ int main(int argc, char *argv[]) {
         while (fgets(line, 512, commits)) {
             int id;
             char msg[100];
-            sscanf(line, "%d|%99s|", &id, msg);
+            // Parse the message properly - it's between the second pipe and the file list
+            char *first_pipe = strchr(line, '|');
+            if (first_pipe) {
+                char *second_pipe = strchr(first_pipe + 1, '|');
+                if (second_pipe) {
+                    *second_pipe = '\0';
+                    sscanf(line, "%d|%99s", &id, msg);
+                    *second_pipe = '|'; // restore for potential reuse
+                } else {
+                    sscanf(line, "%d|%99s", &id, msg);
+                }
+            }
             printf("  Commit %d: %s\n", id, msg);
         }
         fclose(commits);
@@ -154,40 +137,91 @@ int main(int argc, char *argv[]) {
         int id2 = atoi(argv[3]);
         printf("Diff between commit %d and commit %d:\n", id1, id2);
 
-        char file1[256], file2[256];
-        sprintf(file1, ".cjit/objects/%d_test.txt", id1);
-        sprintf(file2, ".cjit/objects/%d_test.txt", id2);
-
-        FILE *f1 = fopen(file1, "r");
-        FILE *f2 = fopen(file2, "r");
-
-        if (!f1 || !f2) {
-            printf("Cannot open object files for comparison\n");
-            return 1;
-        }
-
-        char line1[256], line2[256];
-        int line_num = 1;
-        int diff_found = 0;
-
-        while (fgets(line1, 256, f1) || fgets(line2, 256, f2)) {
-            if (strcmp(line1, line2) != 0) {
-                printf("Line %d:\n", line_num);
-                printf("  [%d] %s", id1, line1);
-                printf("  [%d] %s", id2, line2);
-                diff_found = 1;
+        // Read file lists from both commits
+        char files1[10][100], files2[10][100];
+        int count1 = 0, count2 = 0;
+        
+        FILE *commits = fopen(".cjit/commits.txt", "r");
+        char line[512];
+        while (fgets(line, 512, commits)) {
+            int id;
+            sscanf(line, "%d|", &id);
+            if (id == id1) {
+                char *files_start = strchr(line, '|');
+                files_start = strchr(files_start + 1, '|');
+                if (files_start) {
+                    files_start++;
+                    char *file = strtok(files_start, ",\n");
+                    while (file && count1 < 10) {
+                        strcpy(files1[count1++], file);
+                        file = strtok(NULL, ",\n");
+                    }
+                }
+            } else if (id == id2) {
+                char *files_start = strchr(line, '|');
+                files_start = strchr(files_start + 1, '|');
+                if (files_start) {
+                    files_start++;
+                    char *file = strtok(files_start, ",\n");
+                    while (file && count2 < 10) {
+                        strcpy(files2[count2++], file);
+                        file = strtok(NULL, ",\n");
+                    }
+                }
             }
-            line_num++;
-            memset(line1, 0, 256);
-            memset(line2, 0, 256);
+        }
+        fclose(commits);
+
+        // Compare files that exist in both commits
+        int total_diffs = 0;
+        for (int i = 0; i < count1; i++) {
+            for (int j = 0; j < count2; j++) {
+                if (strcmp(files1[i], files2[j]) == 0) {
+                    char file1_path[256], file2_path[256];
+                    sprintf(file1_path, ".cjit/objects/%d_%s", id1, files1[i]);
+                    sprintf(file2_path, ".cjit/objects/%d_%s", id2, files2[j]);
+
+                    FILE *f1 = fopen(file1_path, "r");
+                    FILE *f2 = fopen(file2_path, "r");
+
+                    if (!f1 || !f2) {
+                        printf("Cannot open object files for %s\n", files1[i]);
+                        if (f1) fclose(f1);
+                        if (f2) fclose(f2);
+                        continue;
+                    }
+
+                    char line1[256], line2[256];
+                    int line_num = 1;
+                    int file_diff = 0;
+
+                    printf("\n--- %s ---\n", files1[i]);
+                    while (fgets(line1, 256, f1) || fgets(line2, 256, f2)) {
+                        if (strcmp(line1, line2) != 0) {
+                            printf("Line %d:\n", line_num);
+                            printf("  [%d] %s", id1, line1);
+                            printf("  [%d] %s", id2, line2);
+                            file_diff = 1;
+                            total_diffs = 1;
+                        }
+                        line_num++;
+                        memset(line1, 0, 256);
+                        memset(line2, 0, 256);
+                    }
+
+                    if (!file_diff) {
+                        printf("  No differences in this file\n");
+                    }
+
+                    fclose(f1);
+                    fclose(f2);
+                }
+            }
         }
 
-        if (!diff_found) {
+        if (!total_diffs) {
             printf("  No differences found\n");
         }
-
-        fclose(f1);
-        fclose(f2);
     } else if (strcmp(argv[1], "branch") == 0) {
         if (argc < 3) {
             printf("Usage: cjit branch <name>\n");
@@ -197,6 +231,62 @@ int main(int argc, char *argv[]) {
         fprintf(branches, "%s|0\n", argv[2]);
         fclose(branches);
         printf("Created branch: %s\n", argv[2]);
+    } else if (strcmp(argv[1], "status") == 0) {
+        FILE *head = fopen(".cjit/HEAD", "r");
+        if (!head) {
+            printf("No repository found\n");
+            return 1;
+        }
+        char current_branch[100];
+        fgets(current_branch, 100, head);
+        current_branch[strcspn(current_branch, "\n")] = '\0';
+        fclose(head);
+        
+        printf("On branch: %s\n", current_branch);
+        
+        // Show staged files
+        FILE *staging = fopen(".cjit/staging.txt", "r");
+        if (staging) {
+            char staged_file[128];
+            int staged_count = 0;
+            printf("Staged files:\n");
+            while (fgets(staged_file, 128, staging)) {
+                staged_file[strcspn(staged_file, "\n")] = '\0';
+                if (strlen(staged_file) > 0) {
+                    printf("  %s\n", staged_file);
+                    staged_count++;
+                }
+            }
+            fclose(staging);
+            if (staged_count == 0) {
+                printf("  (no staged files)\n");
+            }
+        }
+        
+        // Show last commit
+        FILE *commits = fopen(".cjit/commits.txt", "r");
+        if (commits) {
+            char last_line[512];
+            char *last_commit = NULL;
+            while (fgets(last_line, 512, commits)) {
+                last_commit = strdup(last_line);
+            }
+            if (last_commit) {
+                int id;
+                char msg[100];
+                char *first_pipe = strchr(last_commit, '|');
+                if (first_pipe) {
+                    char *second_pipe = strchr(first_pipe + 1, '|');
+                    if (second_pipe) {
+                        *second_pipe = '\0';
+                        sscanf(last_commit, "%d|%99s", &id, msg);
+                        printf("Last commit: %d - %s\n", id, msg);
+                    }
+                }
+                free(last_commit);
+            }
+            fclose(commits);
+        }
     } else if (strcmp(argv[1], "checkout") == 0) {
         if (argc < 3) {
             printf("Usage: cjit checkout <commit_id_or_branch>\n");
@@ -228,6 +318,43 @@ int main(int argc, char *argv[]) {
             printf("Switched to branch: %s\n", target_branch);
             if (target_commit > 0) {
                 printf("(at commit %d)\n", target_commit);
+                // Restore files for the branch's commit
+                int target_id = target_commit;
+                FILE *commits = fopen(".cjit/commits.txt", "r");
+                char cline[512];
+                int found = 0;
+                while (fgets(cline, 512, commits)) {
+                    int id;
+                    sscanf(cline, "%d|", &id);
+                    if (id == target_id) {
+                        found = 1;
+                        char *files_start = strchr(cline, '|');
+                        files_start = strchr(files_start + 1, '|');
+                        if (files_start) {
+                            files_start++;
+                            char *files = strtok(files_start, ",");
+                            while (files && strcmp(files, "\n") != 0) {
+                                char obj_path[256];
+                                sprintf(obj_path, ".cjit/objects/%d_%s", target_id, files);
+                                FILE *src = fopen(obj_path, "r");
+                                FILE *dest = fopen(files, "w");
+                                char ch;
+                                while ((ch = fgetc(src)) != EOF) {
+                                    fputc(ch, dest);
+                                }
+                                fclose(src);
+                                fclose(dest);
+                                printf("Restored: %s\n", files);
+                                files = strtok(NULL, ",");
+                            }
+                        }
+                        break;
+                    }
+                }
+                fclose(commits);
+                if (!found) {
+                    printf("Commit %d not found\n", target_id);
+                }
             }
         } else {
             int commit_id = atoi(argv[2]);
@@ -239,6 +366,27 @@ int main(int argc, char *argv[]) {
                 sscanf(cline, "%d|", &cid);
                 if (cid == commit_id) {
                     found = 1;
+                    // Restore files for the commit
+                    char *files_start = strchr(cline, '|');
+                    files_start = strchr(files_start + 1, '|');
+                    if (files_start) {
+                        files_start++;
+                        char *files = strtok(files_start, ",");
+                        while (files && strcmp(files, "\n") != 0) {
+                            char obj_path[256];
+                            sprintf(obj_path, ".cjit/objects/%d_%s", commit_id, files);
+                            FILE *src = fopen(obj_path, "r");
+                            FILE *dest = fopen(files, "w");
+                            char ch;
+                            while ((ch = fgetc(src)) != EOF) {
+                                fputc(ch, dest);
+                            }
+                            fclose(src);
+                            fclose(dest);
+                            printf("Restored: %s\n", files);
+                            files = strtok(NULL, ",");
+                        }
+                    }
                     break;
                 }
             }
